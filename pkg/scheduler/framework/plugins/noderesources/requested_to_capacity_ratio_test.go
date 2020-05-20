@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
@@ -142,35 +143,75 @@ func TestCreatingFunctionShapeErrorsIfXIsNotSorted(t *testing.T) {
 	assert.Equal(t, "utilization values must be sorted. Utilization[1]==20 >= Utilization[2]==20", err.Error())
 }
 
-func TestCreatingFunctionPointNotInAllowedRange(t *testing.T) {
-	var err error
-	err = validateFunctionShape([]functionShapePoint{{-1, 0}, {100, 100}})
-	assert.Equal(t, "utilization values must not be less than 0. Utilization[0]==-1", err.Error())
+func TestCreatingFunctionErrorsIfScorePointNotInAllowedRange(t *testing.T) {
+	type test struct {
+		name      string
+		args      config.RequestedToCapacityRatioArgs
+		wantError string
+	}
 
-	err = validateFunctionShape([]functionShapePoint{{0, 0}, {101, 100}})
-	assert.Equal(t, "utilization values must not be greater than 100. Utilization[1]==101", err.Error())
+	tests := []test{
+		{
+			"utilization not less than allowed",
+			config.RequestedToCapacityRatioArgs{
+				Shape: []config.UtilizationShapePoint{
+					{Utilization: -1, Score: 1},
+				},
+			},
+			"utilization values must not be less than 0. Utilization[0]==-1",
+		},
+		{
+			"utilization not greater than allowed",
+			config.RequestedToCapacityRatioArgs{
+				Shape: []config.UtilizationShapePoint{
+					{Utilization: 101, Score: 1},
+				},
+			},
+			"utilization values must not be greater than 100. Utilization[0]==101",
+		},
+		{
+			"score not less than allowed",
+			config.RequestedToCapacityRatioArgs{
+				Shape: []config.UtilizationShapePoint{
+					{Utilization: 1, Score: -1},
+				},
+			},
+			"score values must not be less than 0. Score[0]==-1",
+		},
+		{
+			"score not less than allowed",
+			config.RequestedToCapacityRatioArgs{
+				Shape: []config.UtilizationShapePoint{
+					{Utilization: 1, Score: 11},
+				},
+			},
+			"score values must not be greater than 10. Score[0]==101",
+		},
+	}
 
-	err = validateFunctionShape([]functionShapePoint{{0, -1}, {100, 100}})
-	assert.Equal(t, "score values must not be less than 0. Score[0]==-1", err.Error())
-
-	err = validateFunctionShape([]functionShapePoint{{0, 0}, {100, 101}})
-	assert.Equal(t, "score values not be greater than 100. Score[1]==101", err.Error())
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := NewRequestedToCapacityRatio(&test.args, nil)
+			require.Error(t, err)
+			assert.Equal(t, test.wantError, err.Error())
+		})
+	}
 }
 
-func TestBrokenLinearFunction(t *testing.T) {
-	type Assertion struct {
+func TestBuildBrokenLinearFunction(t *testing.T) {
+	type assertion struct {
 		p        int64
 		expected int64
 	}
-	type Test struct {
+	type test struct {
 		points     []functionShapePoint
-		assertions []Assertion
+		assertions []assertion
 	}
 
-	tests := []Test{
+	tests := []test{
 		{
 			points: []functionShapePoint{{10, 1}, {90, 9}},
-			assertions: []Assertion{
+			assertions: []assertion{
 				{p: -10, expected: 1},
 				{p: 0, expected: 1},
 				{p: 9, expected: 1},
@@ -187,7 +228,7 @@ func TestBrokenLinearFunction(t *testing.T) {
 		},
 		{
 			points: []functionShapePoint{{0, 2}, {40, 10}, {100, 0}},
-			assertions: []Assertion{
+			assertions: []assertion{
 				{p: -10, expected: 2},
 				{p: 0, expected: 2},
 				{p: 20, expected: 6},
@@ -200,7 +241,7 @@ func TestBrokenLinearFunction(t *testing.T) {
 		},
 		{
 			points: []functionShapePoint{{0, 2}, {40, 2}, {100, 2}},
-			assertions: []Assertion{
+			assertions: []assertion{
 				{p: -10, expected: 2},
 				{p: 0, expected: 2},
 				{p: 20, expected: 2},
