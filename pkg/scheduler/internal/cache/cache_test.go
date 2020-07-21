@@ -1686,3 +1686,84 @@ func isForgottenFromCache(p *v1.Pod, c *schedulerCache) error {
 	}
 	return nil
 }
+
+func TestSchedulerCache_UpdateNodeMissingZoneRegion(t *testing.T) {
+	cache := newSchedulerCache(time.Second, time.Second, nil)
+	snapshot := NewEmptySnapshot()
+
+	noLabels := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node",
+		},
+	}
+
+	if err := cache.AddNode(noLabels); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cache.AddNode(&v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-2",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cache.AddNode(&v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-3",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cache.UpdateSnapshot(snapshot); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Log("before label update")
+
+	t.Logf("cache tree nodes len: %d", cache.nodeTree.numNodes)
+	t.Logf("snaphot nodes len: %d", snapshot.NumNodes())
+
+	for i := 0; i < cache.nodeTree.numNodes; i++ {
+		n := cache.nodeTree.next()
+		if n == "" {
+			break
+		}
+
+		t.Logf("cache tree node: %s", n)
+	}
+
+	withLabels := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node",
+			Labels: map[string]string{
+				v1.LabelZoneFailureDomainStable: "domain",
+				v1.LabelZoneRegionStable:        "region",
+			},
+		},
+	}
+
+	if err := cache.UpdateNode(noLabels, withLabels); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cache.UpdateSnapshot(snapshot); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Log("after label update")
+
+	t.Logf("cache tree nodes len: %d", cache.nodeTree.numNodes)
+	t.Logf("snaphot nodes len: %d", snapshot.NumNodes())
+
+	for i := 0; i < cache.nodeTree.numNodes; i++ {
+		n := cache.nodeTree.next()
+		if n == "" {
+			break
+		}
+
+		t.Logf("cache tree node: %s", n)
+	}
+}
